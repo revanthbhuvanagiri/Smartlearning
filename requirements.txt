@@ -6,3 +6,13 @@ pathlib # Matches Python 3.x versions
 datetime  # Matches Python 3.x versions
 plotly  # Includes both plotly.express and plotly.graph_objects
 python-dotenv
+faiss-cpu
+groq
+langchain-groq
+PyPDF2
+langchain_google_genai
+langchain
+streamlit
+langchain_community
+python-dotenv
+pypdf
