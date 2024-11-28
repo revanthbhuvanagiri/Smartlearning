@@ -51,7 +51,7 @@ def document_retrieval_tab():
     st.title("📄 Document Retrieval")
 
     # File path for PDFs
-    pdf_folder_path = r"D:\RAG\us_census"
+    pdf_folder_path = r"/workspaces/Smartlearning/us_census"
 
     if not os.path.exists(pdf_folder_path):
         st.error("PDF folder not found. Please ensure the path is correct.")
