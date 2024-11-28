@@ -13,6 +13,105 @@ from dotenv import load_dotenv
 load_dotenv()
 import random
 from datetime import timedelta
+import os
+import time
+from langchain_groq import ChatGroq
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_core.prompts import ChatPromptTemplate
+from langchain.chains import create_retrieval_chain
+from langchain_community.vectorstores import FAISS
+from langchain_community.document_loaders import PyPDFDirectoryLoader
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+os.environ["GOOGLE_API_KEY"] = os.getenv("GOOGLE_API_KEY")
+print(os.getenv("GOOGLE_API_KEY"))
+
+
+
+def create_vector_embeddings(pdf_folder_path):
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+    loader = PyPDFDirectoryLoader(pdf_folder_path)  # Data ingestion
+    docs = loader.load()  # Document loading
+
+    # Extract PDF names
+    pdf_names = [os.path.basename(doc.metadata['source']) for doc in docs]
+    
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)  # Chunk creation
+    final_documents = text_splitter.split_documents(docs)  # Splitting all documents
+    vectors = FAISS.from_documents(final_documents, embeddings)  # Vector embeddings
+
+    return vectors, pdf_names
+
+# Function for the Document Retrieval tab
+def document_retrieval_tab():
+    st.title("📄 Document Retrieval")
+
+    # File path for PDFs
+    pdf_folder_path = r"D:\RAG\us_census"
+
+    if not os.path.exists(pdf_folder_path):
+        st.error("PDF folder not found. Please ensure the path is correct.")
+    else:
+        pdf_files = [f for f in os.listdir(pdf_folder_path) if f.endswith('.pdf')]
+        if not pdf_files:
+            st.warning("No PDFs found in the folder.")
+        else:
+            st.write("Available PDFs in the folder:")
+            for pdf_file in pdf_files:
+                st.write(f"- {pdf_file}")
+
+            if st.button("🔄 Create Vector Store"):
+                with st.spinner("Creating vector store..."):
+                    vectors, pdf_names = create_vector_embeddings(pdf_folder_path)
+                    st.success("Vector Store DB is ready!")
+                    
+                    # Session storage for vectors and document names
+                    st.session_state["vectors"] = vectors
+                    st.session_state["pdf_names"] = pdf_names
+
+            if "vectors" in st.session_state:
+                query = st.text_input("Enter your query:")
+                if query:
+                    with st.spinner("Retrieving answer..."):
+                        try:
+                            # Initialize LLM and chain
+                            llm = ChatGroq(
+                                groq_api_key=os.getenv('GROQ_API_KEY'),
+                                model_name="Llama3-8b-8192"
+                            )
+                            prompt = ChatPromptTemplate.from_template(
+                                """
+                                Answer the questions based on the provided context only.
+                                Please provide the most accurate response based on the question.
+                                <context>
+                                {context}
+                                <context>
+                                Questions: {input}
+                                """
+                            )
+                            document_chain = create_stuff_documents_chain(llm, prompt)
+                            retriever = st.session_state["vectors"].as_retriever()
+                            retrieval_chain = create_retrieval_chain(retriever, document_chain)
+
+                            # Query the chain
+                            start_time = time.process_time()
+                            response = retrieval_chain.invoke({'input': query})
+                            response_time = time.process_time() - start_time
+
+                            st.write(f"Response time: {response_time:.2f} seconds")
+                            st.subheader("Answer:")
+                            st.write(response['answer'])
+
+                            st.subheader("Relevant Documents:")
+                            for i, doc in enumerate(response["context"]):
+                                with st.expander(f"Document {i+1}"):
+                                    st.write(doc.page_content)
+                        except Exception as e:
+                            st.error(f"Error retrieving documents: {str(e)}")
 
 # Database setup
 def init_db():
@@ -549,45 +648,14 @@ else:
             
         page = st.radio(
             "Navigation",
-            ["Dashboard", "Learning Style Assessment", "Learning Path", "Progress Tracking", "Resources"]
+            ["Dashboard", "Learning Style Assessment", "Learning Path", "Progress Tracking", "Resources", "Document Retrieval"]
         )
 
 # Resources Page with Error Handling
     if page == "Resources":
         show_resources_page()
-        # st.title("📚 Learning Resources")
-        
-        # if not st.session_state.user_data['learning_paths']:
-        #     st.info("Please create a learning path first to get personalized resources!")
-        # else:
-        #     selected_path = st.selectbox(
-        #         "Select Learning Path:",
-        #         list(st.session_state.user_data['learning_paths'].keys())
-        #     )
-            
-        #     if selected_path:
-        #         learning_style = st.session_state.user_data.get('learning_style', {}).get('style', 'General')
-        #         resources_content = generate_resources(selected_path, learning_style)
-                
-        #         # Fixed resource display with error handling
-        #         categories = ["ONLINE COURSES", "BOOKS AND MATERIALS", "PRACTICE PLATFORMS", "COMMUNITY RESOURCES"]
-                
-        #         for i, category in enumerate(categories):
-        #             with st.expander(f"📌 {category}"):
-        #                 try:
-        #                     # Split content more reliably
-        #                     sections = resources_content.split(category + ":")
-        #                     if len(sections) > 1:
-        #                         # Get content until next category or end
-        #                         content = sections[1]
-        #                         if i < len(categories) - 1:  # If not the last category
-        #                             content = content.split(categories[i + 1] + ":")[0]
-        #                         st.markdown(content.strip())
-        #                     else:
-        #                         st.write("No resources available for this category.")
-        #                 except Exception as e:
-        #                     st.write("Error displaying resources for this category.")
-        #                     continue
+    elif  page == "Document Retrieval":
+        document_retrieval_tab()
 
 
     # Learning Style Assessment Page
@@ -723,6 +791,8 @@ else:
                         data['completed'].append(item)
                 elif item in data['completed']:
                     data['completed'].remove(item)
+
+    
 
     elif page == "Dashboard":
         show_dashboard()
